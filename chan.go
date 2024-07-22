@@ -2,12 +2,15 @@ package unboundedchannel
 
 import (
 	"log"
+	"runtime"
 	"sync/atomic"
 )
 
 type UnboundedChan[T any] struct {
 	q  *LockedQueue[T]
 	ch chan T
+
+	hasFinalizer bool
 
 	closed atomic.Bool
 }
@@ -17,8 +20,9 @@ func NewUnboundedChan[T any](initSize int) *UnboundedChan[T] {
 	ch := make(chan T, initSize)
 
 	res := &UnboundedChan[T]{
-		q:  q,
-		ch: ch,
+		q:            q,
+		ch:           ch,
+		hasFinalizer: false,
 	}
 
 	go func() {
@@ -39,6 +43,20 @@ func NewUnboundedChan[T any](initSize int) *UnboundedChan[T] {
 	return res
 }
 
+// NewUnboundedChanWithFinalizer creates the UnboundedChan that closes and drains the channel automatically
+// when there is no external reference to it, this helps to remediate the difference point 1 and 2 noted in Close method.
+func NewUnboundedChanWithFinalizer[T any](initSize int) *UnboundedChan[T] {
+	res := NewUnboundedChan[T](initSize)
+	res.hasFinalizer = true
+
+	runtime.SetFinalizer(res, func(uc *UnboundedChan[T]) {
+		uc.close()
+		uc.Drain()
+	})
+
+	return res
+}
+
 func (uc *UnboundedChan[T]) Push(t T) {
 	if !uc.closed.Load() {
 		uc.q.Push(t)
@@ -49,7 +67,7 @@ func (uc *UnboundedChan[T]) Push(t T) {
 }
 
 // Len returns the total items in the channel.
-// Because of the internal impl using a buffer, the exact number can be higher, and up to Len + initSize
+// Because of the internal impl using a buffer (with size of initSize), the actual number can be higher than reported, up to `Len + initSize`
 func (uc *UnboundedChan[T]) Len() int {
 	return uc.q.Len() + len(uc.ch)
 }
@@ -100,6 +118,10 @@ func (uc *UnboundedChan[T]) Close() {
 		panic("close of closed channel")
 	}
 
+	uc.close()
+}
+
+func (uc *UnboundedChan[T]) close() {
 	uc.q.Close()
 	uc.closed.Store(true)
 }
@@ -109,6 +131,10 @@ func (uc *UnboundedChan[T]) Closed() bool {
 }
 
 func (uc *UnboundedChan[T]) CloseAndDrain() {
+	if uc.hasFinalizer {
+		runtime.SetFinalizer(uc, nil)
+	}
+
 	uc.Close()
 	uc.Drain()
 }

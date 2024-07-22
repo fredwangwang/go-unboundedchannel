@@ -7,11 +7,5 @@ it would be wasteful to allocate all those buffers up front. Instead, unbounded 
 
 ## Disadvantage over buffered channel
 
-The ealstically growing feature is powered by a background goroutine. Due to the lack of `weakref`,
-the goroutine unfortunatelly holds reference to the struct itself, preventing it to be automatically
-destroyed through finalizer. Thus it needs some special attention when using. Check the comment on
-`chan.go:UnboundedChan.Close` for more info.
-
-## TODO
-
-maybe looking into finalizer and weakref again to see if the disadvantage can be improved.
+The ealstically growing feature is powered by a background goroutine, which means if the unbounded channel is not closed and drained properly, it could cause goroutine and memory leak.
+This can be remediated using `NewUnboundedChanWithFinalizer` to automatically cleanup the channel if no external refernce to the channel exists.
