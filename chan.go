@@ -11,22 +11,48 @@ type UnboundedChan[T any] struct {
 	ch chan T
 
 	hasFinalizer bool
-
-	closed atomic.Bool
+	closed       atomic.Bool
 }
 
 func NewUnboundedChan[T any](initSize int) *UnboundedChan[T] {
-	q := NewLockQueue[T]()
-	ch := make(chan T, initSize)
-
 	res := &UnboundedChan[T]{
-		q:            q,
-		ch:           ch,
+		q:            NewLockQueue[T](),
+		ch:           make(chan T, initSize),
 		hasFinalizer: false,
 	}
 
+	res.startWorker(initSize)
+
+	return res
+}
+
+// NewUnboundedChanWithFinalizer creates the UnboundedChan that closes and drains the channel automatically
+// when there is no external reference to it, this helps to remediate the difference point 1 and 2 noted in Close method.
+func NewUnboundedChanWithFinalizer[T any](initSize int) *UnboundedChan[T] {
+	res := &UnboundedChan[T]{
+		q:            NewLockQueue[T](),
+		ch:           make(chan T, initSize),
+		hasFinalizer: true,
+	}
+
+	runtime.SetFinalizer(res, func(uc *UnboundedChan[T]) {
+		uc.close()
+		uc.Drain()
+	})
+
+	res.startWorker(initSize)
+
+	return res
+}
+
+func (uc *UnboundedChan[T]) startWorker(initSize int) {
+	q := uc.q
+	ch := uc.ch
+
+	// below goroutine CANNOT hold reference to uc, otherwise Finalizer will never trigger.
 	go func() {
 		buf := make([]T, initSize)
+
 		for {
 			n, err := q.PopSliceWait(buf)
 			if err == ErrQueueClosed {
@@ -39,22 +65,6 @@ func NewUnboundedChan[T any](initSize int) *UnboundedChan[T] {
 			}
 		}
 	}()
-
-	return res
-}
-
-// NewUnboundedChanWithFinalizer creates the UnboundedChan that closes and drains the channel automatically
-// when there is no external reference to it, this helps to remediate the difference point 1 and 2 noted in Close method.
-func NewUnboundedChanWithFinalizer[T any](initSize int) *UnboundedChan[T] {
-	res := NewUnboundedChan[T](initSize)
-	res.hasFinalizer = true
-
-	runtime.SetFinalizer(res, func(uc *UnboundedChan[T]) {
-		uc.close()
-		uc.Drain()
-	})
-
-	return res
 }
 
 func (uc *UnboundedChan[T]) Push(t T) {

@@ -3,8 +3,6 @@ package unboundedchannel
 import (
 	"sync"
 	"sync/atomic"
-
-	"golang.org/x/sys/cpu"
 )
 
 type lqNode[T any] struct {
@@ -13,38 +11,16 @@ type lqNode[T any] struct {
 }
 
 type LockedQueue[T any] struct {
-	// added cacheline pad to avoid false sharing
-	// in benchmark resulting in ~13% speedup
-	// old
-	// cpu: 12th Gen Intel(R) Core(TM) i7-12800H
-	// Benchmark_Buffered_10_Chan-20              15348             77644 ns/op
-	// Benchmark_Buffered_100_Chan-20             22282             55546 ns/op
-	// Benchmark_Unbounded_10_Chan-20              7096            170286 ns/op
-	// Benchmark_Unbounded_100_Chan-20             9981            116185 ns/op
-	//
-	// new
-	// cpu: 12th Gen Intel(R) Core(TM) i7-12800H
-	// Benchmark_Buffered_10_Chan-20              15476             78589 ns/op
-	// Benchmark_Buffered_100_Chan-20             21721             56121 ns/op
-	// Benchmark_Unbounded_10_Chan-20              7832            150448 ns/op
-	// Benchmark_Unbounded_100_Chan-20            10000            100444 ns/op
-	//
-	// head grouped with popCond, both are used by consumer thread/goroutine
-	_       cpu.CacheLinePad
-	head    *lqNode[T]
-	popCond *sync.Cond
-	_       cpu.CacheLinePad
-	// tail grouped with pushMtx, both are used by producer thread/goroutine
-	tail    *lqNode[T]
-	pushMtx sync.Mutex
-	_       cpu.CacheLinePad
-	// len is used by both consumer and producer, separate out
-	len atomic.Int64
-	_   cpu.CacheLinePad
-	// pool does not change, closed rarely change (only flaged once), thus grouped together
 	pool   sync.Pool
 	closed atomic.Bool
-	_      cpu.CacheLinePad
+
+	popCond sync.Cond
+	head    *lqNode[T]
+
+	pushMtx sync.Mutex
+	tail    *lqNode[T]
+
+	len atomic.Int64
 }
 
 func NewLockQueue[T any]() *LockedQueue[T] {
@@ -58,7 +34,7 @@ func NewLockQueue[T any]() *LockedQueue[T] {
 			return &lqNode[T]{}
 		},
 	}
-	q.popCond = sync.NewCond(&sync.Mutex{})
+	q.popCond = *sync.NewCond(&sync.Mutex{})
 
 	return &q
 }

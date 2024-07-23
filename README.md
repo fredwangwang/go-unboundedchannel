@@ -8,4 +8,5 @@ it would be wasteful to allocate all those buffers up front. Instead, unbounded 
 ## Disadvantage over buffered channel
 
 The ealstically growing feature is powered by a background goroutine, which means if the unbounded channel is not closed and drained properly, it could cause goroutine and memory leak.
+
 This can be remediated using `NewUnboundedChanWithFinalizer` to automatically cleanup the channel if no external refernce to the channel exists.

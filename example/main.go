@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 10; i++ {
 		test()
 	}
 
@@ -17,22 +17,29 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	log.Println("remaining goroutine", runtime.NumGoroutine())
-	if runtime.NumGoroutine() >= 1000 {
+	if runtime.NumGoroutine() >= 10 {
 		panic("goroutine leaked")
 	}
 }
 
 func test() {
-	// change this from NewUnboundedChanWithFinalizer to NewUnbounded will panic due to gorutine leak
-	// uc := unboundedchannel.NewUnboundedChan[int](100)
-	uc := unboundedchannel.NewUnboundedChanWithFinalizer[int](100)
+	numInit := 100
+	numPush := 1000
+	numRead := 350
 
-	for i := 0; i < 1000; i++ {
+	// change this from NewUnboundedChanWithFinalizer to NewUnbounded will panic due to gorutine leak
+	// uc := unboundedchannel.NewUnboundedChan[int](numInit)
+	uc := unboundedchannel.NewUnboundedChanWithFinalizer[int](numInit)
+
+	for i := 0; i < numPush; i++ {
 		uc.Push(i)
 	}
 
 	ch := uc.Chan()
-	for i := 0; i < 200; i++ {
+	for i := 0; i < numRead; i++ {
 		<-ch
 	}
+
+	rem := uc.Len()
+	log.Println("actual remaining", numPush-numRead, "reported remaining", rem, "upper bound remaining", rem+numInit)
 }
